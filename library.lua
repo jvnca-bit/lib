@@ -7433,7 +7433,8 @@ local Library do
         for _, path in ipairs(listfiles(self.Folder)) do
             local file = path:match("[^/\\\\]+$")
             if file and file:match("%.json$") then
-                table.insert(output, file:gsub("%.json$", ""))
+                -- Avoid table.insert overload differences in executor environments.
+                output[#output + 1] = file:gsub("%.json$", "")
             end
         end
 
