@@ -843,7 +843,7 @@ local Library do
         local Success, Result = Library:SafeCall(function()
             for Index, Value in Library.Flags do
                 if type(Value) == "table" and Value.Key then
-                    Config[Index] = {Key = tostring(Value.Key), Mode = Value.Mode}
+                    Config[Index] = {Key = tostring(Value.Key), Mode = Value.Mode, Toggled = Value.Toggled}
                 elseif type(Value) == "table" and Value.Color then
                     Config[Index] = {Color = "#" .. Value.HexValue, Alpha = Value.Alpha}
                 else
@@ -5922,10 +5922,16 @@ local Library do
                         return
                     end
 
-                    Dropdown.Value = Option
-                    Library.Flags[Dropdown.Flag] = Option
+                    Dropdown.Value = TableClone(Option)
+                    Library.Flags[Dropdown.Flag] = Dropdown.Value
 
-                    for Index, Value in Option do
+                    -- Clear previous selections before applying the saved selection.
+                    for _, OptionData in Dropdown.Options do
+                        OptionData.Selected = false
+                        OptionData:Toggle("Inactive")
+                    end
+
+                    for Index, Value in Dropdown.Value do
                         local OptionData = Dropdown.Options[Value]
 
                         if not OptionData then
@@ -5936,7 +5942,7 @@ local Library do
                         OptionData:Toggle("Active")
                     end
 
-                    Items["Value"].Instance.Text = TableConcat(Option, ", ")
+                    Items["Value"].Instance.Text = #Dropdown.Value > 0 and TableConcat(Dropdown.Value, ", ") or "..."
                 else
                     if not Dropdown.Options[Option] then
                         return
@@ -6691,12 +6697,12 @@ local Library do
                     local RealKey = Key.Key == "Backspace" and "None" or Key.Key
                     Keybind.Key = tostring(Key.Key)
 
-                    if Key.ModeSelected then
-                        Keybind.ModeSelected = Key.Mode
-                        Keybind:SetMode(Key.Mode)
-                    else
-                        Keybind.ModeSelected = "Toggle"
-                        Keybind:SetMode("Toggle")
+                    local SavedMode = Key.Mode or Key.ModeSelected or "Toggle"
+                    Keybind.ModeSelected = SavedMode
+                    Keybind:SetMode(SavedMode)
+
+                    if Key.Toggled ~= nil then
+                        Keybind.Toggled = Key.Toggled
                     end
 
                     local KeyString = Keys[Keybind.Key] or StringGSub(tostring(RealKey), "Enum.", "") or RealKey
@@ -7152,10 +7158,16 @@ local Library do
                         return
                     end
 
-                    Dropdown.Value = Option
-                    Library.Flags[Dropdown.Flag] = Option
+                    Dropdown.Value = TableClone(Option)
+                    Library.Flags[Dropdown.Flag] = Dropdown.Value
 
-                    for Index, Value in Option do
+                    -- Clear previous selections before applying the saved selection.
+                    for _, OptionData in Dropdown.Options do
+                        OptionData.Selected = false
+                        OptionData:Toggle("Inactive")
+                    end
+
+                    for Index, Value in Dropdown.Value do
                         local OptionData = Dropdown.Options[Value]
 
                         if not OptionData then
