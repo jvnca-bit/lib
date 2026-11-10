@@ -857,15 +857,21 @@ local Library do
 
     Library.LoadConfig = function(self, Config)
         local Decoded = HttpService:JSONDecode(Config)
+        if type(Decoded) ~= "table" then
+            return false, "invalid config data"
+        end
 
-        -- Prevent config-restored keybind values from triggering runtime actions
-        -- such as closing the menu while the config is being applied.
+        -- MenuBind is intentionally not restored: changing it calls the menu
+        -- keybind callback and can close the window during a config load.
         Library.LoadingConfig = true
 
-        local Success, Result = Library:SafeCall(function()
+        local Success, Result = pcall(function()
             for Index, Value in Decoded do
-                local SetFunction = Library.SetFlags[Index]
+                if Index == "MenuBind" then
+                    continue
+                end
 
+                local SetFunction = Library.SetFlags[Index]
                 if not SetFunction then
                     continue
                 end
@@ -881,7 +887,11 @@ local Library do
         end)
 
         Library.LoadingConfig = false
-        return Success, Result
+        if not Success then
+            return false, tostring(Result)
+        end
+
+        return true
     end
 
     Library.DeleteConfig = function(self, Config)
