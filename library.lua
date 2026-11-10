@@ -6892,6 +6892,12 @@ local Library do
             end
 
             function Textbox:Get()
+                -- Read the live TextBox text, not only the last value-change callback.
+                -- This also works when a button is clicked before FocusLost fires.
+                local CurrentText = Items["Input"].Instance.Text
+                if type(CurrentText) == "string" then
+                    return CurrentText
+                end
                 return Textbox.Value
             end
 
@@ -7404,7 +7410,7 @@ local Library do
 
         if name == ""
             or name:find("/", 1, true)
-            or name:find("\\\\", 1, true)
+            or name:find("\\", 1, true)
             or name:find("..", 1, true) then
             return nil
         end
@@ -7580,9 +7586,10 @@ local Library do
         ConfigsSection:Button({
             Name = "Create",
             Callback = function()
-                local name = SaveManager:_GetName(ConfigNameInput:Get())
+                local rawName = ConfigNameInput:Get()
+                local name = SaveManager:_GetName(rawName)
                 if not name then
-                    warn("[SaveManager] Enter a valid config name")
+                    warn("[SaveManager] Enter a valid config name. Current input:", string.format("%q", tostring(rawName)))
                     return
                 end
 
