@@ -7364,163 +7364,336 @@ local Library do
         end
     end
 
-    Library.CreateSettingsPage = function(self, Window, KeybindList)
-        local Page = Window:Page({Name = "Settings", Icon = "122669828593160"})
+    -- Linoria-style SaveManager adapted for this library's Flags / SetFlags API.
+    local SaveManager = {
+        Folder = Library.Folders.Configs,
+        Ignore = {}
+    }
 
-        
-
-Library.CreateSettingsPage = function(self, Window, KeybindList)
-    local Page = Window:Page({
-        Name = "Settings",
-        Icon = "122669828593160"
-    })
-
-    local ConfigsSection = Page:Section({
-        Name = "Configs",
-        Side = 2
-    })
-
-    local ConfigName
-    local ConfigSelected
-
-    if not isfolder(Library.Folders.Configs) then
-        makefolder(Library.Folders.Configs)
+    function SaveManager:BuildFolderTree()
+        if not isfolder(Library.Folders.Directory) then
+            makefolder(Library.Folders.Directory)
+        end
+        if not isfolder(self.Folder) then
+            makefolder(self.Folder)
+        end
     end
 
-    local ConfigsDropdown = ConfigsSection:Listbox({
-        Flag = "ConfigsList",
-        Items = {},
-        Multi = false,
-        Callback = function(Value)
-            ConfigSelected = Value
+    function SaveManager:SetFolder(folder)
+        self.Folder = folder
+        self:BuildFolderTree()
+    end
+
+    function SaveManager:SetLibrary(library)
+        self.Library = library
+    end
+
+    function SaveManager:SetIgnoreIndexes(indexes)
+        for _, index in ipairs(indexes) do
+            self.Ignore[index] = true
         end
-    })
+    end
 
-    ConfigsSection:Textbox({
-        Flag = "ConfigsName",
-        Placeholder = "Name",
-        Numeric = false,
-        Finished = true,
-        Callback = function(Value)
-            ConfigName = Value
+    function SaveManager:_GetName(name)
+        if type(name) ~= "string" then
+            return nil
         end
-    })
 
-    ConfigsSection:Button({
-        Name = "Create",
-        Callback = function()
-            if not ConfigName or ConfigName:match("^%s*$") then
-                warn("Enter a config name")
-                return
-            end
+        name = name:gsub("^%s+", ""):gsub("%s+$", "")
+        name = name:gsub("%.json$", "")
 
-            local FileName = ConfigName:gsub("%.json$", "") .. ".json"
-            local Path = Library.Folders.Configs .. "/" .. FileName
+        if name == "" or name:find("[/\\\\]") or name:find("%.%.", 1, true) then
+            return nil
+        end
 
-            if isfile(Path) then
-                warn("Config already exists")
-                return
-            end
+        return name
+    end
 
-            local Success, Result = pcall(function()
-                writefile(Path, Library:GetConfig())
-            end)
+    function SaveManager:_GetPath(name)
+        name = self:_GetName(name)
+        if not name then
+            return nil
+        end
+        return self.Folder .. "/" .. name .. ".json"
+    end
 
-            if Success then
-                Library:RefreshConfigsList(ConfigsDropdown)
-                print("Created config:", FileName)
-            else
-                warn("Config creation failed:", Result)
+    function SaveManager:RefreshConfigList()
+        self:BuildFolderTree()
+
+        local output = {}
+        for _, path in ipairs(listfiles(self.Folder)) do
+            local file = path:match("[^/\\\\]+$")
+            if file and file:match("%.json$") then
+                table.insert(output, file:gsub("%.json$", ""))
             end
         end
-    })
 
-    ConfigsSection:Button({
-        Name = "Delete",
-        Callback = function()
-            if not ConfigSelected then
-                warn("Select a config")
-                return
+        table.sort(output)
+        return output
+    end
+
+    function SaveManager:Save(name)
+        local path = self:_GetPath(name)
+        if not path then
+            return false, "invalid config name"
+        end
+
+        self:BuildFolderTree()
+
+        local success, result = pcall(function()
+            local payload = {
+                format = "LinoriaSaveManager",
+                version = 1,
+                config = self.Library:GetConfig()
+            }
+            writefile(path, HttpService:JSONEncode(payload))
+        end)
+
+        if not success then
+            return false, tostring(result)
+        end
+
+        return true
+    end
+
+    function SaveManager:Load(name)
+        local path = self:_GetPath(name)
+        if not path or not isfile(path) then
+            return false, "config file not found"
+        end
+
+        local success, result = pcall(function()
+            local raw = readfile(path)
+            local decoded = HttpService:JSONDecode(raw)
+
+            -- New SaveManager format, plus compatibility with existing library configs.
+            if type(decoded) == "table" and decoded.format == "LinoriaSaveManager"
+                and type(decoded.config) == "string" then
+                return self.Library:LoadConfig(decoded.config)
             end
 
-            local FileName = ConfigSelected:gsub("%.json$", "") .. ".json"
-            local Path = Library.Folders.Configs .. "/" .. FileName
+            return self.Library:LoadConfig(raw)
+        end)
 
-            if isfile(Path) then
-                delfile(Path)
+        if not success then
+            return false, tostring(result)
+        end
+
+        if result == false then
+            return false, "one or more settings could not be applied"
+        end
+
+        return true
+    end
+
+    function SaveManager:Delete(name)
+        local path = self:_GetPath(name)
+        if not path or not isfile(path) then
+            return false, "config file not found"
+        end
+
+        local success, result = pcall(delfile, path)
+        if not success then
+            return false, tostring(result)
+        end
+
+        return true
+    end
+
+    function SaveManager:SetAutoloadConfig(name)
+        local cleanName = self:_GetName(name)
+        if not cleanName or not isfile(self:_GetPath(cleanName)) then
+            return false, "select an existing config first"
+        end
+
+        local success, result = pcall(function()
+            writefile(self.Folder .. "/autoload.txt", cleanName)
+        end)
+
+        if not success then
+            return false, tostring(result)
+        end
+
+        return true
+    end
+
+    function SaveManager:ClearAutoloadConfig()
+        local path = self.Folder .. "/autoload.txt"
+        if isfile(path) then
+            delfile(path)
+        end
+        return true
+    end
+
+    function SaveManager:LoadAutoloadConfig()
+        local path = self.Folder .. "/autoload.txt"
+        if not isfile(path) then
+            return false, "no autoload config is set"
+        end
+
+        local name = readfile(path)
+        return self:Load(name)
+    end
+
+    SaveManager:BuildFolderTree()
+    SaveManager:SetLibrary(Library)
+    Library.SaveManager = SaveManager
+
+    Library.CreateSettingsPage = function(self, Window, KeybindList)
+        local Page = Window:Page({
+            Name = "Settings",
+            Icon = "122669828593160"
+        })
+
+        local ConfigsSection = Page:Section({
+            Name = "Configs",
+            Side = 2
+        })
+
+        local ConfigName
+        local ConfigSelected
+
+        local ConfigsDropdown = ConfigsSection:Listbox({
+            Flag = "SaveManager_ConfigList",
+            Items = SaveManager:RefreshConfigList(),
+            Multi = false,
+            Callback = function(value)
+                ConfigSelected = value
+            end
+        })
+
+        ConfigsSection:Textbox({
+            Flag = "SaveManager_ConfigName",
+            Placeholder = "Config name",
+            Numeric = false,
+            Finished = true,
+            Callback = function(value)
+                ConfigName = value
+            end
+        })
+
+        local function RefreshConfigs()
+            ConfigsDropdown:Refresh(SaveManager:RefreshConfigList())
+        end
+
+        ConfigsSection:Button({
+            Name = "Create",
+            Callback = function()
+                local name = SaveManager:_GetName(ConfigName)
+                if not name then
+                    warn("[SaveManager] Enter a valid config name")
+                    return
+                end
+
+                if isfile(SaveManager:_GetPath(name)) then
+                    warn("[SaveManager] Config already exists")
+                    return
+                end
+
+                local success, err = SaveManager:Save(name)
+                if not success then
+                    warn("[SaveManager] Create failed:", err)
+                    return
+                end
+
+                RefreshConfigs()
+                print("[SaveManager] Created:", name)
+            end
+        })
+
+        ConfigsSection:Button({
+            Name = "Load",
+            Callback = function()
+                if not ConfigSelected then
+                    warn("[SaveManager] Select a config first")
+                    return
+                end
+
+                local success, err = SaveManager:Load(ConfigSelected)
+                if not success then
+                    warn("[SaveManager] Load failed:", err)
+                    return
+                end
+
+                print("[SaveManager] Loaded:", ConfigSelected)
+            end
+        })
+
+        ConfigsSection:Button({
+            Name = "Save",
+            Callback = function()
+                if not ConfigSelected then
+                    warn("[SaveManager] Select a config first")
+                    return
+                end
+
+                local success, err = SaveManager:Save(ConfigSelected)
+                if not success then
+                    warn("[SaveManager] Save failed:", err)
+                    return
+                end
+
+                print("[SaveManager] Saved:", ConfigSelected)
+            end
+        })
+
+        ConfigsSection:Button({
+            Name = "Delete",
+            Callback = function()
+                if not ConfigSelected then
+                    warn("[SaveManager] Select a config first")
+                    return
+                end
+
+                local selected = ConfigSelected
+                local success, err = SaveManager:Delete(selected)
+                if not success then
+                    warn("[SaveManager] Delete failed:", err)
+                    return
+                end
+
                 ConfigSelected = nil
-                Library:RefreshConfigsList(ConfigsDropdown)
-                print("Deleted config:", FileName)
+                RefreshConfigs()
+                print("[SaveManager] Deleted:", selected)
             end
-        end
-    })
+        })
 
-    ConfigsSection:Button({
-        Name = "Load",
-        Callback = function()
-            if not ConfigSelected then
-                warn("Select a config")
-                return
+        ConfigsSection:Button({
+            Name = "Refresh",
+            Callback = function()
+                RefreshConfigs()
             end
+        })
 
-            local FileName = ConfigSelected:gsub("%.json$", "") .. ".json"
-            local Path = Library.Folders.Configs .. "/" .. FileName
+        ConfigsSection:Button({
+            Name = "Set Autoload",
+            Callback = function()
+                if not ConfigSelected then
+                    warn("[SaveManager] Select a config first")
+                    return
+                end
 
-            if not isfile(Path) then
-                warn("Config not found")
-                return
+                local success, err = SaveManager:SetAutoloadConfig(ConfigSelected)
+                if not success then
+                    warn("[SaveManager] Autoload setup failed:", err)
+                    return
+                end
+
+                print("[SaveManager] Autoload set to:", ConfigSelected)
             end
+        })
 
-            local Success, Result = pcall(function()
-                Library:LoadConfig(readfile(Path))
-            end)
-
-            if Success then
-                print("Loaded config:", FileName)
-            else
-                warn("Config loading failed:", Result)
+        ConfigsSection:Button({
+            Name = "Clear Autoload",
+            Callback = function()
+                SaveManager:ClearAutoloadConfig()
+                print("[SaveManager] Autoload cleared")
             end
-        end
-    })
+        })
 
-    ConfigsSection:Button({
-        Name = "Save",
-        Callback = function()
-            if not ConfigSelected then
-                warn("Select a config")
-                return
-            end
+        RefreshConfigs()
+        return Page
+    end
 
-            local FileName = ConfigSelected:gsub("%.json$", "") .. ".json"
-            local Path = Library.Folders.Configs .. "/" .. FileName
-
-            if not isfile(Path) then
-                warn("Config not found")
-                return
-            end
-
-            local Success, Result = pcall(function()
-                writefile(Path, Library:GetConfig())
-            end)
-
-            if Success then
-                print("Saved config:", FileName)
-            else
-                warn("Config saving failed:", Result)
-            end
-        end
-    })
-
-    ConfigsSection:Button({
-        Name = "Refresh",
-        Callback = function()
-            Library:RefreshConfigsList(ConfigsDropdown)
-        end
-    })
-
-    return Page
-end
-
-getgenv().Library = Library
-return Library
-
+    getgenv().Library = Library
+    return Library
