@@ -3622,25 +3622,65 @@ local Library do
             local Debounce = false
 
             function Page:Turn(Bool)
-                if Page.Active == Bool then
+                if Debounce then
                     return
                 end
 
                 Page.Active = Bool
 
-                -- Switch pages instantly instead of tweening every descendant.
-                -- Large pages can contain hundreds of UI objects; fading each one
-                -- creates a burst of tweens and causes frame drops.
-                if Bool then
-                    Items["Page"].Instance.Parent = Page.Window.Items["Content"].Instance
-                    Items["Page"].Instance.Visible = true
-                    Items["Page"].Instance.Position = UDim2New(0, 0, 0, 0)
+                Debounce = true
+                Items["Page"].Instance.Visible = Bool
+                Items["Page"].Instance.Parent = Bool and Page.Window.Items["Content"].Instance or Library.UnusedHolder.Instance
+
+                if Page.Active then
                     Items["Inactive"]:Tween(nil, {BackgroundTransparency = 0.25})
+                    Items["Page"]:Tween(TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Position = UDim2New(0, 0, 0, 0)})
+
+                    for Index, Value in Page.Sections do
+                        task.spawn(function()
+                            Value:TweenElements(true)
+                        end)
+                    end
                 else
-                    Items["Page"].Instance.Visible = false
-                    Items["Page"].Instance.Parent = Library.UnusedHolder.Instance
-                    Items["Page"].Instance.Position = UDim2New(0, 0, 0, 60)
                     Items["Inactive"]:Tween(nil, {BackgroundTransparency = 1})
+                    Items["Page"]:Tween(TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Position = UDim2New(0, 0, 0, 60)})
+                end
+
+                local AllInstances = Items["Page"].Instance:GetDescendants()
+                TableInsert(AllInstances, Items["Page"].Instance)
+
+                local NewTween
+
+                for Index, Value in AllInstances do
+                    local TransparencyProperty = Tween:GetProperty(Value)
+
+                    if not TransparencyProperty then
+                        continue
+                    end
+
+                    if type(TransparencyProperty) == "table" then
+                        for _, Property in TransparencyProperty do
+                            NewTween = Tween:FadeItem(Value, Property, Bool, Library.FadeSpeed)
+                        end
+                    else
+                        NewTween = Tween:FadeItem(Value, TransparencyProperty, Bool, Library.FadeSpeed)
+                    end
+                end
+
+                if NewTween then
+                    Library:Connect(NewTween.Tween.Completed, function()
+                        Debounce = false
+
+                        if not Page.Active then
+                            for Index, Value in Page.Sections do
+                                task.spawn(function()
+                                    Value:TweenElements(false, true)
+                                end)
+                            end
+                        end
+                    end)
+                else
+                    Debounce = false
                 end
             end
 
