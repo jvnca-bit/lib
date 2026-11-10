@@ -3208,7 +3208,17 @@ local Library do
                     Flag = "MenuBind",
                     Default = Enum.KeyCode.Z,
                     Callback = function(Value)
-                        Window:SetOpen(Value)
+                        -- The keybind may invoke its callback while the window is
+                        -- still being constructed, before Window:SetOpen is assigned.
+                        if type(Window.SetOpen) == "function" then
+                            Window:SetOpen(Value)
+                        else
+                            task.defer(function()
+                                if type(Window.SetOpen) == "function" then
+                                    Window:SetOpen(Value)
+                                end
+                            end)
+                        end
                     end
                 })
 
