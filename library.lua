@@ -7394,184 +7394,105 @@ local Library do
         end
     end
 
-    -- Linoria-style SaveManager adapted for this library's Flags / SetFlags API.
-    local SaveManager = {
-        Folder = Library.Folders.Configs,
-        Ignore = {}
-    }
+    -- Built-in config file helpers
+    local ConfigFolder = Library.Folders.Configs
 
-    function SaveManager:BuildFolderTree()
-        if not isfolder(Library.Folders.Directory) then
-            makefolder(Library.Folders.Directory)
-        end
-        if not isfolder(self.Folder) then
-            makefolder(self.Folder)
-        end
+    if not isfolder(Library.Folders.Directory) then
+        makefolder(Library.Folders.Directory)
+    end
+    if not isfolder(ConfigFolder) then
+        makefolder(ConfigFolder)
     end
 
-    function SaveManager:SetFolder(folder)
-        self.Folder = folder
-        self:BuildFolderTree()
-    end
-
-    function SaveManager:SetLibrary(library)
-        self.Library = library
-    end
-
-    function SaveManager:SetIgnoreIndexes(indexes)
-        for _, index in ipairs(indexes) do
-            self.Ignore[index] = true
-        end
-    end
-
-    function SaveManager:_GetName(name)
-        if type(name) ~= "string" then
+    local function GetConfigName(Name)
+        if type(Name) ~= "string" then
             return nil
         end
 
-        name = name:gsub("^%s+", ""):gsub("%s+$", "")
-        name = name:gsub("%.json$", "")
-
-        if name == ""
-            or name:find("/", 1, true)
-            or name:find("\\", 1, true)
-            or name:find("..", 1, true) then
+        Name = Name:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%.json$", "")
+        if Name == "" or Name:find("[/\\\\]") or Name:find("%.%.", 1, false) then
             return nil
         end
 
-        return name
+        return Name
     end
 
-    function SaveManager:_GetPath(name)
-        name = self:_GetName(name)
-        if not name then
-            return nil
-        end
-        return self.Folder .. "/" .. name .. ".json"
-    end
-
-    function SaveManager:RefreshConfigList()
-        self:BuildFolderTree()
-
-        local output = {}
-        for _, path in ipairs(listfiles(self.Folder)) do
-            local file = path:match("[^/\\\\]+$")
-            if file and file:match("%.json$") then
-                -- Avoid table.insert overload differences in executor environments.
-                output[#output + 1] = file:gsub("%.json$", "")
-            end
-        end
-
-        table.sort(output)
-        return output
-    end
-
-    function SaveManager:Save(name)
-        local path = self:_GetPath(name)
-        if not path then
+    Library.SaveConfig = function(self, Name)
+        Name = GetConfigName(Name)
+        if not Name then
             return false, "invalid config name"
         end
 
-        self:BuildFolderTree()
-
-        local success, result = pcall(function()
-            local payload = {
-                format = "LinoriaSaveManager",
-                version = 1,
-                config = self.Library:GetConfig()
-            }
-            writefile(path, HttpService:JSONEncode(payload))
+        local Success, Result = pcall(function()
+            writefile(ConfigFolder .. "/" .. Name .. ".json", self:GetConfig())
         end)
 
-        if not success then
-            return false, tostring(result)
+        if not Success then
+            return false, tostring(Result)
         end
 
         return true
     end
 
-    function SaveManager:Load(name)
-        local path = self:_GetPath(name)
-        if not path or not isfile(path) then
-            return false, "config file not found"
+    Library.LoadConfigFile = function(self, Name)
+        Name = GetConfigName(Name)
+        if not Name then
+            return false, "invalid config name"
         end
 
-        local success, result = pcall(function()
-            local raw = readfile(path)
-            local decoded = HttpService:JSONDecode(raw)
+        local Path = ConfigFolder .. "/" .. Name .. ".json"
+        if not isfile(Path) then
+            return false, "config not found"
+        end
 
-            -- New SaveManager format, plus compatibility with existing library configs.
-            if type(decoded) == "table" and decoded.format == "LinoriaSaveManager"
-                and type(decoded.config) == "string" then
-                return self.Library:LoadConfig(decoded.config)
+        local Success, Result = pcall(function()
+            return self:LoadConfig(readfile(Path))
+        end)
+
+        if not Success then
+            return false, tostring(Result)
+        end
+        if Result == false then
+            return false, "config could not be applied"
+        end
+
+        return true
+    end
+
+    Library.DeleteConfig = function(self, Name)
+        Name = GetConfigName(Name)
+        if not Name then
+            return false, "invalid config name"
+        end
+
+        local Path = ConfigFolder .. "/" .. Name .. ".json"
+        if not isfile(Path) then
+            return false, "config not found"
+        end
+
+        local Success, Result = pcall(delfile, Path)
+        if not Success then
+            return false, tostring(Result)
+        end
+
+        return true
+    end
+
+    Library.RefreshConfigsList = function(self, Element)
+        local Configs = {}
+        for _, Path in ipairs(listfiles(ConfigFolder)) do
+            local FileName = Path:match("[^/\\\\]+$")
+            if FileName and FileName:match("%.json$") then
+                Configs[#Configs + 1] = FileName:gsub("%.json$", "")
             end
-
-            return self.Library:LoadConfig(raw)
-        end)
-
-        if not success then
-            return false, tostring(result)
         end
 
-        if result == false then
-            return false, "one or more settings could not be applied"
+        table.sort(Configs)
+        if Element then
+            Element:Refresh(Configs)
         end
-
-        return true
+        return Configs
     end
-
-    function SaveManager:Delete(name)
-        local path = self:_GetPath(name)
-        if not path or not isfile(path) then
-            return false, "config file not found"
-        end
-
-        local success, result = pcall(delfile, path)
-        if not success then
-            return false, tostring(result)
-        end
-
-        return true
-    end
-
-    function SaveManager:SetAutoloadConfig(name)
-        local cleanName = self:_GetName(name)
-        if not cleanName or not isfile(self:_GetPath(cleanName)) then
-            return false, "select an existing config first"
-        end
-
-        local success, result = pcall(function()
-            writefile(self.Folder .. "/autoload.txt", cleanName)
-        end)
-
-        if not success then
-            return false, tostring(result)
-        end
-
-        return true
-    end
-
-    function SaveManager:ClearAutoloadConfig()
-        local path = self.Folder .. "/autoload.txt"
-        if isfile(path) then
-            delfile(path)
-        end
-        return true
-    end
-
-    function SaveManager:LoadAutoloadConfig()
-        local path = self.Folder .. "/autoload.txt"
-        if not isfile(path) then
-            return false, "no autoload config is set"
-        end
-
-        local name = readfile(path)
-        return self:Load(name)
-    end
-
-    SaveManager:BuildFolderTree()
-    SaveManager:SetLibrary(Library)
-    Library.SaveManager = SaveManager
 
     Library.CreateSettingsPage = function(self, Window, KeybindList)
         local Page = Window:Page({
@@ -7585,52 +7506,58 @@ local Library do
         })
 
         local ConfigSelected
-
         local ConfigsDropdown = ConfigsSection:Listbox({
-            Flag = "SaveManager_ConfigList",
-            Items = SaveManager:RefreshConfigList(),
+            Flag = "Library_ConfigList",
+            Items = self:RefreshConfigsList(),
             Multi = false,
-            Callback = function(value)
-                ConfigSelected = value
+            Callback = function(Value)
+                ConfigSelected = Value
             end
         })
 
-        -- Finished=false updates Textbox.Value and Library.Flags while typing.
-        -- With Finished=true, this library only updates after Enter is pressed.
         local ConfigNameInput = ConfigsSection:Textbox({
-            Flag = "SaveManager_ConfigName",
+            Flag = "Library_ConfigName",
             Placeholder = "Config name",
             Numeric = false,
             Finished = false
         })
 
+        local function Notify(Title, Description)
+            self:Notification({
+                Title = Title,
+                Description = Description,
+                Icon = "122669828593160",
+                Duration = 3
+            })
+        end
+
         local function RefreshConfigs()
-            ConfigsDropdown:Refresh(SaveManager:RefreshConfigList())
+            self:RefreshConfigsList(ConfigsDropdown)
         end
 
         ConfigsSection:Button({
             Name = "Create",
             Callback = function()
-                local rawName = ConfigNameInput:Get()
-                local name = SaveManager:_GetName(rawName)
-                if not name then
-                    warn("[SaveManager] Enter a valid config name. Current input:", string.format("%q", tostring(rawName)))
+                local Name = GetConfigName(ConfigNameInput:Get())
+                if not Name then
+                    Notify("Config", "Enter a valid config name.")
                     return
                 end
 
-                if isfile(SaveManager:_GetPath(name)) then
-                    warn("[SaveManager] Config already exists")
+                if isfile(ConfigFolder .. "/" .. Name .. ".json") then
+                    Notify("Config", "That config already exists.")
                     return
                 end
 
-                local success, err = SaveManager:Save(name)
-                if not success then
-                    warn("[SaveManager] Create failed:", err)
+                local Success, Error = self:SaveConfig(Name)
+                if not Success then
+                    Notify("Config error", tostring(Error))
                     return
                 end
 
+                ConfigSelected = Name
                 RefreshConfigs()
-                print("[SaveManager] Created:", name)
+                Notify("Config created", Name)
             end
         })
 
@@ -7638,17 +7565,17 @@ local Library do
             Name = "Load",
             Callback = function()
                 if not ConfigSelected then
-                    warn("[SaveManager] Select a config first")
+                    Notify("Config", "Select a config first.")
                     return
                 end
 
-                local success, err = SaveManager:Load(ConfigSelected)
-                if not success then
-                    warn("[SaveManager] Load failed:", err)
+                local Success, Error = self:LoadConfigFile(ConfigSelected)
+                if not Success then
+                    Notify("Config error", tostring(Error))
                     return
                 end
 
-                print("[SaveManager] Loaded:", ConfigSelected)
+                Notify("Config loaded", ConfigSelected)
             end
         })
 
@@ -7656,17 +7583,17 @@ local Library do
             Name = "Save",
             Callback = function()
                 if not ConfigSelected then
-                    warn("[SaveManager] Select a config first")
+                    Notify("Config", "Select a config first.")
                     return
                 end
 
-                local success, err = SaveManager:Save(ConfigSelected)
-                if not success then
-                    warn("[SaveManager] Save failed:", err)
+                local Success, Error = self:SaveConfig(ConfigSelected)
+                if not Success then
+                    Notify("Config error", tostring(Error))
                     return
                 end
 
-                print("[SaveManager] Saved:", ConfigSelected)
+                Notify("Config saved", ConfigSelected)
             end
         })
 
@@ -7674,20 +7601,20 @@ local Library do
             Name = "Delete",
             Callback = function()
                 if not ConfigSelected then
-                    warn("[SaveManager] Select a config first")
+                    Notify("Config", "Select a config first.")
                     return
                 end
 
-                local selected = ConfigSelected
-                local success, err = SaveManager:Delete(selected)
-                if not success then
-                    warn("[SaveManager] Delete failed:", err)
+                local Name = ConfigSelected
+                local Success, Error = self:DeleteConfig(Name)
+                if not Success then
+                    Notify("Config error", tostring(Error))
                     return
                 end
 
                 ConfigSelected = nil
                 RefreshConfigs()
-                print("[SaveManager] Deleted:", selected)
+                Notify("Config deleted", Name)
             end
         })
 
@@ -7695,36 +7622,10 @@ local Library do
             Name = "Refresh",
             Callback = function()
                 RefreshConfigs()
+                Notify("Configs", "Config list refreshed.")
             end
         })
 
-        ConfigsSection:Button({
-            Name = "Set Autoload",
-            Callback = function()
-                if not ConfigSelected then
-                    warn("[SaveManager] Select a config first")
-                    return
-                end
-
-                local success, err = SaveManager:SetAutoloadConfig(ConfigSelected)
-                if not success then
-                    warn("[SaveManager] Autoload setup failed:", err)
-                    return
-                end
-
-                print("[SaveManager] Autoload set to:", ConfigSelected)
-            end
-        })
-
-        ConfigsSection:Button({
-            Name = "Clear Autoload",
-            Callback = function()
-                SaveManager:ClearAutoloadConfig()
-                print("[SaveManager] Autoload cleared")
-            end
-        })
-
-        RefreshConfigs()
         return Page
     end
 
