@@ -7368,9 +7368,24 @@ local Library do
         local Page = Window:Page({Name = "Settings", Icon = "122669828593160"})
 
         
-local ConfigsSection = Page:Section({Name = "Configs", Side = 2}) do
+
+Library.CreateSettingsPage = function(self, Window, KeybindList)
+    local Page = Window:Page({
+        Name = "Settings",
+        Icon = "122669828593160"
+    })
+
+    local ConfigsSection = Page:Section({
+        Name = "Configs",
+        Side = 2
+    })
+
     local ConfigName
     local ConfigSelected
+
+    if not isfolder(Library.Folders.Configs) then
+        makefolder(Library.Folders.Configs)
+    end
 
     local ConfigsDropdown = ConfigsSection:Listbox({
         Flag = "ConfigsList",
@@ -7395,46 +7410,47 @@ local ConfigsSection = Page:Section({Name = "Configs", Side = 2}) do
         Name = "Create",
         Callback = function()
             if not ConfigName or ConfigName:match("^%s*$") then
-                warn("Enter a config name first")
+                warn("Enter a config name")
                 return
             end
 
-            local FileName = ConfigName .. ".json"
+            local FileName = ConfigName:gsub("%.json$", "") .. ".json"
             local Path = Library.Folders.Configs .. "/" .. FileName
 
             if isfile(Path) then
-                warn("Config already exists!")
+                warn("Config already exists")
                 return
             end
 
-            if not isfolder(Library.Folders.Configs) then
-                makefolder(Library.Folders.Configs)
-            end
+            local Success, Result = pcall(function()
+                writefile(Path, Library:GetConfig())
+            end)
 
-            writefile(Path, Library:GetConfig())
-            Library:RefreshConfigsList(ConfigsDropdown)
-            print("Config created:", FileName)
+            if Success then
+                Library:RefreshConfigsList(ConfigsDropdown)
+                print("Created config:", FileName)
+            else
+                warn("Config creation failed:", Result)
+            end
         end
     })
 
     ConfigsSection:Button({
         Name = "Delete",
         Callback = function()
-            if ConfigSelected then
-                local FileName = ConfigSelected
+            if not ConfigSelected then
+                warn("Select a config")
+                return
+            end
 
-                if not FileName:match("%.json$") then
-                    FileName = FileName .. ".json"
-                end
+            local FileName = ConfigSelected:gsub("%.json$", "") .. ".json"
+            local Path = Library.Folders.Configs .. "/" .. FileName
 
-                local Path = Library.Folders.Configs .. "/" .. FileName
-
-                if isfile(Path) then
-                    delfile(Path)
-                    Library:RefreshConfigsList(ConfigsDropdown)
-                    ConfigSelected = nil
-                    print("Config deleted:", FileName)
-                end
+            if isfile(Path) then
+                delfile(Path)
+                ConfigSelected = nil
+                Library:RefreshConfigsList(ConfigsDropdown)
+                print("Deleted config:", FileName)
             end
         end
     })
@@ -7443,23 +7459,26 @@ local ConfigsSection = Page:Section({Name = "Configs", Side = 2}) do
         Name = "Load",
         Callback = function()
             if not ConfigSelected then
-                warn("Select a config first")
+                warn("Select a config")
                 return
             end
 
-            local FileName = ConfigSelected
-
-            if not FileName:match("%.json$") then
-                FileName = FileName .. ".json"
-            end
-
+            local FileName = ConfigSelected:gsub("%.json$", "") .. ".json"
             local Path = Library.Folders.Configs .. "/" .. FileName
 
-            if isfile(Path) then
+            if not isfile(Path) then
+                warn("Config not found")
+                return
+            end
+
+            local Success, Result = pcall(function()
                 Library:LoadConfig(readfile(Path))
-                print("Config loaded:", FileName)
+            end)
+
+            if Success then
+                print("Loaded config:", FileName)
             else
-                warn("Config file not found:", Path)
+                warn("Config loading failed:", Result)
             end
         end
     })
@@ -7468,23 +7487,26 @@ local ConfigsSection = Page:Section({Name = "Configs", Side = 2}) do
         Name = "Save",
         Callback = function()
             if not ConfigSelected then
-                warn("Select a config first")
+                warn("Select a config")
                 return
             end
 
-            local FileName = ConfigSelected
-
-            if not FileName:match("%.json$") then
-                FileName = FileName .. ".json"
-            end
-
+            local FileName = ConfigSelected:gsub("%.json$", "") .. ".json"
             local Path = Library.Folders.Configs .. "/" .. FileName
 
-            if isfile(Path) then
+            if not isfile(Path) then
+                warn("Config not found")
+                return
+            end
+
+            local Success, Result = pcall(function()
                 writefile(Path, Library:GetConfig())
-                print("Config saved:", FileName)
+            end)
+
+            if Success then
+                print("Saved config:", FileName)
             else
-                warn("Config file not found:", Path)
+                warn("Config saving failed:", Result)
             end
         end
     })
@@ -7495,8 +7517,10 @@ local ConfigsSection = Page:Section({Name = "Configs", Side = 2}) do
             Library:RefreshConfigsList(ConfigsDropdown)
         end
     })
-end
 
+    return Page
+end
 
 getgenv().Library = Library
 return Library
+
