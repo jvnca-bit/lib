@@ -858,6 +858,10 @@ local Library do
     Library.LoadConfig = function(self, Config)
         local Decoded = HttpService:JSONDecode(Config)
 
+        -- Prevent config-restored keybind values from triggering runtime actions
+        -- such as closing the menu while the config is being applied.
+        Library.LoadingConfig = true
+
         local Success, Result = Library:SafeCall(function()
             for Index, Value in Decoded do
                 local SetFunction = Library.SetFlags[Index]
@@ -876,6 +880,7 @@ local Library do
             end
         end)
 
+        Library.LoadingConfig = false
         return Success, Result
     end
 
@@ -3208,6 +3213,11 @@ local Library do
                     Flag = "MenuBind",
                     Default = Enum.KeyCode.Z,
                     Callback = function(Value)
+                        -- Applying a saved MenuBind value must not hide the UI.
+                        if Library.LoadingConfig then
+                            return
+                        end
+
                         -- The keybind may invoke its callback while the window is
                         -- still being constructed, before Window:SetOpen is assigned.
                         if type(Window.SetOpen) == "function" then
