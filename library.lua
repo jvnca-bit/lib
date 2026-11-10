@@ -7402,7 +7402,10 @@ local Library do
         name = name:gsub("^%s+", ""):gsub("%s+$", "")
         name = name:gsub("%.json$", "")
 
-        if name == "" or name:find("[/\\\\]") or name:find("%.%.", 1, true) then
+        if name == ""
+            or name:find("/", 1, true)
+            or name:find("\\\\", 1, true)
+            or name:find("..", 1, true) then
             return nil
         end
 
@@ -7550,7 +7553,6 @@ local Library do
             Side = 2
         })
 
-        local ConfigName
         local ConfigSelected
 
         local ConfigsDropdown = ConfigsSection:Listbox({
@@ -7562,14 +7564,13 @@ local Library do
             end
         })
 
-        ConfigsSection:Textbox({
+        -- Finished=false updates Textbox.Value and Library.Flags while typing.
+        -- With Finished=true, this library only updates after Enter is pressed.
+        local ConfigNameInput = ConfigsSection:Textbox({
             Flag = "SaveManager_ConfigName",
             Placeholder = "Config name",
             Numeric = false,
-            Finished = true,
-            Callback = function(value)
-                ConfigName = value
-            end
+            Finished = false
         })
 
         local function RefreshConfigs()
@@ -7579,7 +7580,7 @@ local Library do
         ConfigsSection:Button({
             Name = "Create",
             Callback = function()
-                local name = SaveManager:_GetName(ConfigName)
+                local name = SaveManager:_GetName(ConfigNameInput:Get())
                 if not name then
                     warn("[SaveManager] Enter a valid config name")
                     return
